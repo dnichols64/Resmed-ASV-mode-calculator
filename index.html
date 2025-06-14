@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ResMed ASV Settings Calculator</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    max-width: 400px;
+    margin: 30px auto;
+    padding: 0 15px;
+  }
+  label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+  }
+  input[type="number"] {
+    width: 100%;
+    padding: 8px;
+    font-size: 1rem;
+  }
+  input[readonly] {
+    background-color: #f0f0f0;
+  }
+  #messages {
+    color: red;
+    margin-top: 15px;
+    min-height: 50px;
+    font-weight: bold;
+    display: none;
+  }
+  button {
+    margin-top: 20px;
+    padding: 10px;
+    font-size: 1.1rem;
+    width: 100%;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<h2>ResMed ASV Settings Calculator</h2>
+
+<form id="asvForm" onsubmit="return false;">
+  <label for="epap">Desired EPAP (cm H₂O):</label>
+  <input type="number" id="epap" step="0.2" min="4" max="15" placeholder="e.g. 12.0" />
+
+  <label for="minPs">Desired Min PS (cm H₂O):</label>
+  <input type="number" id="minPs" step="0.2" min="0" max="6" placeholder="e.g. 2.0" />
+
+  <label for="maxPs">Desired Max PS (cm H₂O):</label>
+  <input type="number" id="maxPs" step="0.2" min="0" max="20" placeholder="e.g. 13.0" />
+
+  <div id="messages"></div>
+
+  <button id="calcButton" type="button">Calculate</button>
+</form>
+
+<h3>Actual Machine Settings</h3>
+
+<label for="actualEpap">Actual EPAP:</label>
+<input type="text" id="actualEpap" readonly />
+
+<label for="actualMinPs">Actual Min PS:</label>
+<input type="text" id="actualMinPs" readonly />
+
+<label for="actualMaxPs">Actual Max PS:</label>
+<input type="text" id="actualMaxPs" readonly />
+
+<script>
+  const EPAP_MIN = 4.0;
+  const EPAP_MAX = 15.0;
+  const MIN_PS_MIN = 0.0;
+  const MIN_PS_MAX = 6.0;
+  const MAX_PS_MAX = 20.0;
+
+  // Round value down to nearest 0.2
+  function roundDownToPointTwo(val) {
+    return Math.floor(val * 5) / 5;
+  }
+
+  // Clamp value within min and max
+  function clamp(val, min, max) {
+    return Math.min(Math.max(val, min), max);
+  }
+
+  function validateInputs(epap, minPs, maxPs) {
+    const errors = [];
+
+    if (isNaN(epap)) errors.push("Please enter a number for EPAP.");
+    else if (epap < EPAP_MIN || epap > EPAP_MAX) errors.push(`EPAP must be between ${EPAP_MIN} and ${EPAP_MAX}.`);
+
+    if (isNaN(minPs)) errors.push("Please enter a number for Min PS.");
+    else if (minPs < MIN_PS_MIN || minPs > MIN_PS_MAX) errors.push(`Min PS must be between ${MIN_PS_MIN} and ${MIN_PS_MAX}.`);
+
+    if (isNaN(maxPs)) errors.push("Please enter a number for Max PS.");
+    else if (maxPs < 0 || maxPs > MAX_PS_MAX) errors.push(`Max PS must be between 0 and ${MAX_PS_MAX}.`);
+
+    return errors;
+  }
+
+  function checkWarnings(epap, minPs, maxPs) {
+    const warnings = [];
+    const minAllowedMaxPs = minPs + 5;
+    const maxAllowedMaxPs = 25 - epap;
+
+    if (maxPs < minAllowedMaxPs) {
+      warnings.push(`Warning: Desired Max PS (${maxPs.toFixed(1)}) is below minimum allowed Max PS (${minAllowedMaxPs.toFixed(1)}). It will be raised.`);
+    }
+    if (maxPs > maxAllowedMaxPs) {
+      warnings.push(`Warning: Desired Max PS (${maxPs.toFixed(1)}) is above maximum allowed Max PS (${maxAllowedMaxPs.toFixed(1)}). It will be lowered.`);
+    }
+    return warnings;
+  }
+
+  function calculateActualSettings(desiredEpap, desiredMinPs, desiredMaxPs) {
+    // Round and clamp inputs
+    let epap = roundDownToPointTwo(clamp(desiredEpap, EPAP_MIN, EPAP_MAX));
+    let minPs = roundDownToPointTwo(clamp(desiredMinPs, MIN_PS_MIN, MIN_PS_MAX));
+
+    const minAllowedMaxPs = minPs + 5;
+    const maxAllowedMaxPs = 25 - epap;
+
+    // Clamp max PS to allowed range
+    let maxPsLowerBound = Math.max(minAllowedMaxPs, 0);
+    let maxPsUpperBound = Math.min(maxAllowedMaxPs, MAX_PS_MAX);
+    let maxPs = roundDownToPointTwo(clamp(desiredMaxPs, maxPsLowerBound, maxPsUpperBound));
+
+    return {
+      epap: epap.toFixed(1),
+      minPs: minPs.toFixed(1),
+      maxPs: maxPs.toFixed(1),
+      minAllowedMaxPs: minAllowedMaxPs.toFixed(1),
+      maxAllowedMaxPs: maxAllowedMaxPs.toFixed(1)
+    };
+  }
+
+  // DOM refs
+  const epapInput = document.getElementById('epap');
+  const minPsInput = document.getElementById('minPs');
+  const maxPsInput = document.getElementById('maxPs');
+  const messagesDiv = document.getElementById('messages');
+
+  const actualEpapOutput = document.getElementById('actualEpap');
+  const actualMinPsOutput = document.getElementById('actualMinPs');
+  const actualMaxPsOutput = document.getElementById('actualMaxPs');
+
+  function updateCalculator() {
+    const epap = parseFloat(epapInput.value);
+    const minPs = parseFloat(minPsInput.value);
+    const maxPs = parseFloat(maxPsInput.value);
+
+    messagesDiv.style.display = "none";
+    messagesDiv.innerHTML = "";
+
+    // Validate
+    const errors = validateInputs(epap, minPs, maxPs);
+    if (errors.length > 0) {
+      messagesDiv.style.display = "block";
+      messagesDiv.innerHTML = errors.join("<br>");
+      clearOutputs();
+      return;
+    }
+
+    // Check warnings
+    const warnings = checkWarnings(epap, minPs, maxPs);
+    if (warnings.length > 0) {
+      messagesDiv.style.display = "block";
+      messagesDiv.innerHTML = warnings.join("<br>");
+    }
+
+    // Calculate actual machine settings
+    const results = calculateActualSettings(epap, minPs, maxPs);
+
+    actualEpapOutput.value = results.epap;
+    actualMinPsOutput.value = results.minPs;
+    actualMaxPsOutput.value = results.maxPs;
+  }
+
+  function clearOutputs() {
+    actualEpapOutput.value = "";
+    actualMinPsOutput.value = "";
+    actualMaxPsOutput.value = "";
+  }
+
+  document.getElementById('calcButton').addEventListener('click', updateCalculator);
+  epapInput.addEventListener('input', updateCalculator);
+  minPsInput.addEventListener('input', updateCalculator);
+  maxPsInput.addEventListener('input', updateCalculator);
+
+  clearOutputs();
+</script>
+
+</body>
+</html>
